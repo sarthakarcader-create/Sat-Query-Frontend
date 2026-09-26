@@ -833,107 +833,136 @@ function classify(){
 document.getElementById('sendBtn').onclick=submitQuery;
 document.getElementById('queryInput').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();submitQuery();}});
  
-function submitQuery(){
-  const q=document.getElementById('queryInput').value.trim();
+async function submitQuery(){
+  const q = document.getElementById('queryInput').value.trim();
   if(!q) return;
-  const c=classify();
-  if(!c){alert('Upload imagery or select a map region first.');return;}
-  pushHistory(q);
-  const dq=(0.82+Math.random()*0.15), model=(0.8+Math.random()*0.18), agree=(0.78+Math.random()*0.2);
-  const overall=0.30*dq+0.45*model+0.25*agree;
-  const trace=[
-    {
-      t:'Validated inputs',
-      d:(state.mapFetched && state.selectedPoint
-        ? 'region selected · bbox ['+c.bbox.map(v=>v.toFixed(5)).join(', ')+']'
-        : 'files checked · CRS + band count confirmed')
-    },
-    {t:'Classified intent',d:c.label+' (intent confidence '+(0.9+Math.random()*0.08).toFixed(2)+')'},
-    {t:'Routed to specialist model',d:c.intent+' → satquery/models/registry.py'},
-    {t:'Confidence computed',d:'data_quality '+dq.toFixed(2)+' · model '+model.toFixed(2)+' · agreement '+agree.toFixed(2)}
-  ];
-  const answers={
-    change_detection:'Between the two acquisitions, built-up area in the scene increased while vegetated cover contracted along the northern edge — consistent with new construction activity.',
-    cross_modal_fusion:'Combining optical and SAR confirms a water-covered region in the lower-left quadrant that is partly cloud-obscured in the optical band alone; SAR backscatter fills the gap.',
-    single_image_vqa:'The scene is predominantly agricultural land with a cluster of built-up structures near the centre and a river running along the eastern boundary.'
-  };
-  const results=document.getElementById('results');
-  results.innerHTML='<div class="card" id="stepsCard"><h4 style="margin:0 0 14px;font-family:\'Inter\',sans-serif;font-size:14px;font-weight:600;color:var(--ink-dim);letter-spacing:.01em">QUERY ROUTER — AGENT ORCHESTRATION</h4></div>';
-  const stepsCard=document.getElementById('stepsCard');
-  trace.forEach((s,i)=>{
-    setTimeout(()=>{
-      const line=document.createElement('div');
-      line.className='step-line'; line.style.animationDelay=(i*0.05)+'s';
-      line.innerHTML='<span class="chk">✓</span><span><b>'+s.t+'</b><br><span class="d">'+s.d+'</span></span>';
-      stepsCard.appendChild(line);
-      if(i===trace.length-1) revealAnswer();
-    }, i*450);
-  });
-  function revealAnswer(){
-    const box=document.createElement('div');
-    box.className='card';
-    box.style.marginTop='16px';
-    box.innerHTML=`
-      <div id="answerBox" class="italic-copy">${answers[c.intent]}</div>
-      <details id="logsBox"><summary>Logs — full execution trace</summary><pre>${JSON.stringify(trace,null,2)}</pre></details>
-      <div style="margin-top:16px">
-        <div class="conf-row">Data quality <div class="conf-bar"><div class="conf-fill" style="width:${dq*100}%"></div></div>${dq.toFixed(2)}</div>
-        <div class="conf-row">Model <div class="conf-bar"><div class="conf-fill" style="width:${model*100}%"></div></div>${model.toFixed(2)}</div>
-        <div class="conf-row">Agreement <div class="conf-bar"><div class="conf-fill" style="width:${agree*100}%"></div></div>${agree.toFixed(2)}</div>
-        <div style="margin-top:8px">Overall confidence <span class="conf-total">${overall.toFixed(2)}</span></div>
-      </div>
-      <a id="reportBtn" href="#" download="satquery-report.json"
-        style="display:inline-block;text-decoration:none;margin-top:14px;background:var(--green);
-        color:var(--green-ink);border:none;padding:10px 20px;border-radius:20px;
-        font-family:'Anton',sans-serif;font-size:12.5px;letter-spacing:.03em;cursor:pointer;">
-        Generate / download report
-      </a>`;
-    stepsCard.parentElement.appendChild(box);
-    document.getElementById('reportBtn').onclick=(e)=>{
-      e.preventDefault();
 
-      const btn=document.getElementById('reportBtn');
-      const report={
+  const c = classify();
+  if(!c){ alert('Upload imagery or select a map region first.'); return; }
+
+  if(state.mapFetched && state.selectedPoint){
+    alert('Map-region analysis will be connected next. For now, upload satellite imagery.');
+    return;
+  }
+
+  const files = [];
+
+  if(c.intent === 'change_detection'){
+    if(state.slots.p1o) files.push(state.slots.p1o);
+    if(state.slots.p2o) files.push(state.slots.p2o);
+  }else if(c.intent === 'cross_modal_fusion'){
+    if(state.slots.p1o && state.slots.p1s){
+      files.push(state.slots.p1o, state.slots.p1s);
+    }else if(state.slots.p2o && state.slots.p2s){
+      files.push(state.slots.p2o, state.slots.p2s);
+    }
+  }else{
+    const firstFile = state.slots.p1o || state.slots.p1s || state.slots.p2o || state.slots.p2s;
+    if(firstFile) files.push(firstFile);
+  }
+
+  if(!files.length){ alert('Please upload the required imagery first.'); return; }
+
+  pushHistory(q);
+  const results = document.getElementById('results');
+
+  results.innerHTML = `
+    <div class="card">
+      <h4 style="margin:0 0 14px;font-family:'Inter',sans-serif;font-size:14px;font-weight:600;color:var(--ink-dim);letter-spacing:.01em">
+        QUERY ROUTER — AGENT ORCHESTRATION
+      </h4>
+      <div class="step-line" style="opacity:1;transform:none">
+        <span class="chk">✓</span><span><b>Uploading inputs</b><br><span class="d">${files.length} image(s) selected</span></span>
+      </div>
+      <div class="step-line" style="opacity:1;transform:none">
+        <span class="chk">✓</span><span><b>Sending query to SatQuery AI</b><br><span class="d">FastAPI → AgentController</span></span>
+      </div>
+    </div>`;
+
+  try{
+    const formData = new FormData();
+    formData.append('query', q);
+    files.forEach(file => formData.append('files', file, file.name));
+
+    const response = await fetch('http://127.0.0.1:8000/analyze', {
+      method:'POST',
+      body:formData
+    });
+
+    const data = await response.json();
+    if(!response.ok) throw new Error(data.detail || 'Backend analysis failed.');
+
+    console.log('SatQuery backend response:', data);
+
+    results.innerHTML = `
+      <div class="card">
+        <h4 style="margin:0 0 14px;font-family:'Inter',sans-serif;font-size:14px;font-weight:600;color:var(--ink-dim);letter-spacing:.01em">
+          QUERY ROUTER — AGENT ORCHESTRATION
+        </h4>
+        <div class="step-line" style="opacity:1;transform:none">
+          <span class="chk">✓</span><span><b>Analysis completed</b><br><span class="d">${data.task || 'SatQuery AI Agent'}</span></span>
+        </div>
+        <div class="step-line" style="opacity:1;transform:none">
+          <span class="chk">✓</span><span><b>Models / tools used</b><br><span class="d">${(data.tools_used || []).join(' → ') || '—'}</span></span>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div id="answerBox" class="italic-copy">${data.answer || 'No answer returned.'}</div>
+        <details id="logsBox"><summary>Logs — full execution trace</summary><pre>${JSON.stringify(data.execution_summary || data, null, 2)}</pre></details>
+        <div style="margin-top:16px">
+          <div style="margin-top:8px">Confidence <span class="conf-total">${Number(data.confidence || 0).toFixed(2)}</span></div>
+          <div style="margin-top:10px;color:var(--ink-dim);font-size:12px">Task: ${data.task || '—'}</div>
+          <div style="margin-top:6px;color:var(--ink-dim);font-size:12px">Sub-capability: ${data.sub_capability || '—'}</div>
+        </div>
+        <a id="reportBtn" href="#" download="satquery-report.json"
+          style="display:inline-block;text-decoration:none;margin-top:14px;background:var(--green);color:var(--green-ink);border:none;padding:10px 20px;border-radius:20px;font-family:'Anton',sans-serif;font-size:12.5px;letter-spacing:.03em;cursor:pointer;">
+          Generate / download report
+        </a>
+      </div>`;
+
+    document.getElementById('reportBtn').onclick = (e) => {
+      e.preventDefault();
+      const report = {
         generated_at:new Date().toISOString(),
         application:'SatQuery AI',
-        mode:state.mode,
-        input:(state.mapFetched && state.selectedPoint)
-          ? {type:'selected_region',bbox:state.selectedPoint.bbox}
-          : Object.fromEntries(
-              Object.entries(state.slots)
-                .filter(([,v])=>v)
-                .map(([k,v])=>[k,v.name])
-            ),
         query:q,
-        workflow:c.intent,
-        trace:trace,
-        answer:answers[c.intent],
-        confidence:{data_quality:dq,model:model,agreement:agree,overall:overall}
+        workflow:data.intent,
+        task:data.task,
+        sub_capability:data.sub_capability,
+        answer:data.answer,
+        confidence:data.confidence,
+        confidence_breakdown:data.confidence_breakdown,
+        tools_used:data.tools_used,
+        visual_evidence:data.visual_evidence,
+        execution_summary:data.execution_summary,
+        warnings:data.warnings,
+        errors:data.errors
       };
-
-      const json=JSON.stringify(report,null,2);
-      const blob=new Blob([json],{type:'application/json'});
-      const url=URL.createObjectURL(blob);
-
-      // Put the blob URL directly on the visible anchor. Then trigger it
-      // from the same user click. This is more reliable than creating a
-      // detached anchor and calling click() on some local-file setups.
+      const blob = new Blob([JSON.stringify(report,null,2)], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const btn = document.getElementById('reportBtn');
       btn.href=url;
       btn.download='satquery-report.json';
       btn.textContent='Download report ✓';
-
-      // Give the browser a real navigation target as a fallback.
-      setTimeout(()=>{
-        btn.textContent='Generate / download report';
-        if(btn.href && btn.href.startsWith('blob:')){
-          URL.revokeObjectURL(url);
-          btn.href='#';
-        }
-      },15000);
+      setTimeout(() => URL.revokeObjectURL(url), 15000);
     };
+
+    document.getElementById('queryInput').value='';
+    results.scrollIntoView({behavior:'smooth',block:'start'});
+
+  }catch(error){
+    console.error('SatQuery API error:', error);
+    results.innerHTML = `
+      <div class="card">
+        <div id="answerBox" style="border-left-color:#d9534f">
+          <b>Backend connection failed.</b><br><br>
+          ${error.message}<br><br>
+          Make sure FastAPI is running on:<br>
+          <code>http://127.0.0.1:8000</code>
+        </div>
+      </div>`;
   }
-  document.getElementById('queryInput').value='';
-  results.scrollIntoView({behavior:'smooth',block:'start'});
 }
 </script>
 </body>
