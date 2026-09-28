@@ -425,23 +425,19 @@ details summary{cursor:pointer;color:var(--ink-dim);font-size:12.5px;margin-top:
             </div>
             <div class="acq-controls">
               <div class="acq-field">
-                <label for="t1Date">T1 · EARLIER ACQUISITION</label>
+                <label for="t1Date">FROM</label>
                 <input id="t1Date" type="date">
               </div>
               <div class="acq-field">
-                <label for="t2Date">T2 · LATER ACQUISITION</label>
+                <label for="t2Date">TO</label>
                 <input id="t2Date" type="date">
               </div>
-              <label class="acq-sar">
-                <input id="includeSar" type="checkbox">
-                Also fetch Sentinel-1 SAR
-              </label>
             </div>
             <div class="acq-status" id="acqStatus">
               Draw/select an ROI for the Bi-temporal pair, choose T1 and T2, then fetch live Sentinel-2 imagery. The backend searches the acquisition window and can widen it when needed.
             </div>
             <div class="map-toolbar" style="border-top:0;padding-top:0">
-              <button class="fetch-btn" id="fetchImagery" style="flex:1">🛰️ Fetch Sentinel imagery for ROI</button>
+              <button class="fetch-btn" id="fetchImagery" style="flex:1">Fetch Satellite data</button>
             </div>
           </div>
           <div id="results"></div>
@@ -652,13 +648,13 @@ async function fetchLiveImagery(){
   }
   const t1=document.getElementById('t1Date').value;
   const t2=document.getElementById('t2Date').value;
-  const includeSar=document.getElementById('includeSar').checked;
+  const includeSar=false;
   if(!t1||!t2){setAcqStatus('Choose both T1 and T2 dates.','err');return;}
   if(t1>=t2){setAcqStatus('T1 must be earlier than T2.','err');return;}
 
   const btn=document.getElementById('fetchImagery');
   btn.disabled=true;
-  btn.textContent='⏳ Fetching Sentinel imagery…';
+  btn.textContent='Fetching Satellite data…';
   setAcqStatus('Backend is querying Sentinel-2 for T1/T2'+(includeSar?' + Sentinel-1 SAR':'')+'… typically 10–40 s.','');
 
   try{
@@ -709,7 +705,7 @@ async function fetchLiveImagery(){
     alert(err.message+'\\n\\nCheck FastAPI is running and verify /fetch-imagery and /analyze-bitemporal appear in http://127.0.0.1:8000/docs.');
   }finally{
     btn.disabled=false;
-    btn.textContent='🛰️ Fetch Sentinel imagery for ROI';
+    btn.textContent='Fetch Satellite data';
   }
 }
 
